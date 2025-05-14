@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>테서랙트 정사영 디버깅 버전</title>
+    <title>테서랙트 원근 정사영 및 분석</title>
     <style>
         body { margin: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh; background-color: #f8f8f8; font-family: sans-serif; padding: 20px; box-sizing: border-box; }
         h1, h2 { text-align: center; color: #333; margin-bottom: 10px; }
@@ -42,37 +42,38 @@
 </head>
 <body>
 
-    <h1>테서랙트 정사영 </h1>
+    <h1>테서랙트 원근 정사영 분석</h1>
+    <h2>=</h2>
 
     <canvas id="projectionCanvas" width="400" height="400"></canvas>
 
     <div class="controls">
         <div class="control-group">
             <label for="rotateXW">XW 회전 각도:</label>
-            <input type="range" id="rotateXW" min="0" max="360" value="40">
-            <span id="rotateXWValue">40°</span>
+            <input type="range" id="rotateXW" min="0" max="360" value="0">
+            <span id="rotateXWValue">0°</span>
         </div>
         <div class="control-group">
             <label for="rotateYW">YW 회전 각도:</label>
-            <input type="range" id="rotateYW" min="0" max="360" value="60">
-            <span id="rotateYWValue">60°</span>
+            <input type="range" id="rotateYW" min="0" max="360" value="45">
+            <span id="rotateYWValue">45°</span>
         </div>
          <div class="control-group">
             <label for="rotateZW">ZW 회전 각도:</label>
-            <input type="range" id="rotateZW" min="0" max="360" value="20">
-            <span id="rotateZWValue">20°</span>
+            <input type="range" id="rotateZW" min="0" max="360" value="30">
+            <span id="rotateZWValue">30°</span>
         </div>
-         <div class="info">슬라이더를 움직여 테서랙트를 4차원 공간에서 회전시켜 다양한 정사영을 확인하세요.</div>
+         <div class="info">슬라이더를 움직여 테서랙트를 4차원 공간에서 회전시켜 다양한 투영 모습을 확인하세요.</div>
     </div>
 
     <pre id="analysisArea">
-        --- 현재 정사영 그림 분석 결과 (추론 단서) ---
+        --- 현재 투영 그림 분석 결과 (추론 단서) ---
         (슬라이더를 움직이면 실시간으로 분석 결과가 업데이트됩니다.)
 
         총 점 개수: 0개
         총 선 개수: 0개
         모든 점 차수: 분석 중...
-        모든 면 형태: 분석 중...
+        보이는 면 형태: 분석 중...
         모든 모서리 - 면 관계: 분석 중...
         길이 왜곡: 분석 중...
     </pre>
@@ -82,10 +83,10 @@
 
 
     <div class="info">
-        <p>캔버스에는 현재 각도에서의 테서랙트 2차원 정사영 그림이 그려진다.</p>
+        <p>캔버스에는 현재 각도에서의 테서랙트 3차원 투영 그림이 그려진다.</p>
         <p>아래 분석 결과는 그 그림의 특징을 수학적으로 분석한 것이다.</p>
         <p>분석된 단서들을 종합하여 원래 4차원 도형이 무엇인지 추론한다.</p>
-        
+        <p><span class="warning">주의:</span> 매우 특수한 각도에서는 선이나 점이 겹쳐 보이거나 그림이 불안정할 수 있다.</p>
     </div>
 
     <script>
@@ -130,7 +131,6 @@
         }
 
          // 4차원 면 (정사각형) 데이터 (24개) - 2D 분석 시 활용
-         // 정확한 24개 면의 꼭짓점 인덱스 목록
          const accurate_faces4D_vertex_indices = [
               [ 0, 1, 3, 2], [ 4, 5, 7, 6], [ 0, 4, 5, 1], [ 2, 6, 7, 3], [ 0, 2, 6, 4], [ 1, 3, 7, 5], // 셀 경계 면 (w=-1 -> w=1)
               [ 8, 9,11,10], [12,13,15,14], [ 8,12,13, 9], [10,14,15,11], [ 8,10,14,12], [ 9,11,15,13], // 다른 셀 경계 면
@@ -141,6 +141,7 @@
 
 
         // --- 2. 4차원 벡터 회전 함수 ---
+        // 4차원 벡터 v를 XW, YW, ZW 평면에서 회전시킨 새로운 벡터를 반환한다.
         function rotateVector4D(v, angleXW_rad, angleYW_rad, angleZW_rad) {
             let v1 = { ...v };
 
@@ -165,13 +166,38 @@
             return v1; // 회전된 4차원 벡터
         }
 
-        // --- 3. 정사영 함수 (회전된 4차원 벡터를 2차원 평면에 투영) ---
-        function project4Dto2D(v4D_rotated) {
-            // 단순하게 X, Y 좌표를 2차원 좌표로 사용한다.
-            return { x: v4D_rotated.x, y: v4D_rotated.y };
+        // --- 3. 4차원 -> 3차원 원근 투영 함수 (W에 대한 원근) ---
+        // 회전된 4차원 벡터 (x', y', z', w')를 3차원 공간 (x'', y'', z'')으로 투영한다.
+        // w' 값을 원근감에 사용한다.
+        function project4Dto3D_PerspectiveW(v4D_rotated, viewerDistance) {
+             const w_prime = v4D_rotated.w;
+             // 시점과의 거리가 너무 가깝거나 뒤에 있는 경우 (나눗셈 문제 발생)
+             const divisor = viewerDistance - w_prime;
+
+             if (divisor === 0) return { x: NaN, y: NaN, z: NaN }; // 투영 불가능
+
+             const x_prime = v4D_rotated.x;
+             const y_prime = v4D_rotated.y;
+             const z_prime = v4D_rotated.z;
+
+             // 3차원 원근 투영 결과
+             const x_3D = x_prime / divisor;
+             const y_3D = y_prime / divisor;
+             const z_3D = z_prime / divisor; // Z 좌표도 유지
+
+             return { x: x_3D, y: y_3D, z: z_3D };
         }
 
-        // --- 4. 2차원 그림 분석 함수 (추론 단서 찾기) ---
+        // --- 4. 3차원 -> 2차원 투영 함수 (XY 평면에 그리기) ---
+        // 3차원 벡터 (x'', y'', z'')를 2차원 평면 (x''', y''')에 그리기 위한 좌표로 변환한다.
+        // 여기서는 단순하게 XY 평면에 직교 투영한다.
+         function project3Dto2D_Draw(v3D_projected) {
+              // 3차원 투영 결과의 X, Y 좌표를 2차원 화면 좌표로 사용한다.
+             return { x: v3D_projected.x, y: v3D_projected.y };
+         }
+
+
+        // --- 5. 2차원 그림 분석 함수 (추론 단서 찾기) ---
         // Note: 정확한 2D 그래프 분석은 복잡하므로, 원래 4D 구조 정보와 현재 2D 결과를 바탕으로 해석한다.
 
         // 4-1. 총 점 및 선 개수 파악 (단순)
@@ -185,7 +211,7 @@
             const degrees = vertices2D.map((_, index) => getVertexDegree(index, edges));
             const uniqueDegrees = [...new Set(degrees)];
             const allSame = uniqueDegrees.length === 1;
-            const allAre4 = allSame && uniqueDegrees[0] === 4;
+            const allAre4 = allSame && uniqueDegrees.length > 0 && uniqueDegrees[0] === 4; // uniqueDegrees가 비어있지 않도록 체크
 
             return {
                 degrees: degrees,
@@ -225,7 +251,7 @@
 
              const uniqueFaceEdgeCounts = [...new Set(visibleFacesAnalysis)];
              const allSame = uniqueFaceEdgeCounts.length <= 1;
-             const allVisibleAre4 = allSame && uniqueFaceEdgeCounts.length > 0 && uniqueFaceEdgeCounts[0] === 4;
+             const allVisibleAre4 = allSame && uniqueFaceEdgeCounts.length > 0 && uniqueFaceEdgeCounts[0] === 4 && visibleFacesAnalysis.length > 0;
 
              return {
                   visibleFaceCounts: visibleFacesAnalysis,
@@ -249,7 +275,6 @@
                       const v2_in_face = face_v_indices.includes(edge[1]);
 
                       if(v1_in_face && v2_in_face) {
-                           // 면에 두 꼭짓점이 모두 포함되면, 테서랙트에서는 그 면에서 이웃한다.
                            count++; // 이 모서리는 이 면에 속한다.
                       }
                  });
@@ -258,7 +283,7 @@
 
              const uniqueIncidenceCounts = [...new Set(incidenceCounts)];
              const allSame = uniqueIncidenceCounts.length === 1;
-             const allAre3 = allSame && uniqueIncidenceCounts[0] === 3;
+             const allAre3 = allSame && uniqueIncidenceCounts.length > 0 && uniqueIncidenceCounts[0] === 3; // uniqueIncidenceCounts가 비어있지 않도록 체크
 
              return {
                   incidenceCounts: incidenceCounts,
@@ -275,13 +300,16 @@
              const projectedLengths = edges.map(edge => {
                  const p1 = vertices2D[edge[0]];
                  const p2 = vertices2D[edge[1]];
+                  // NaN 좌표를 가진 점은 길이 계산에서 제외
+                 if (isNaN(p1.x) || isNaN(p1.y) || isNaN(p2.x) || isNaN(p2.y)) return NaN;
                  return Math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2); // 2D 길이
-             });
+             }).filter(l => !isNaN(l)); // NaN 길이 제거
 
               // 0 길이 투영 (모서리가 투영 평면에 수직) 또는 매우 짧은 길이 제외하고 분석
              const nonZeroLengths = projectedLengths.filter(l => l > 1e-4); // 임계값 조정
 
              if (nonZeroLengths.length < edges.length * 0.5) return "대부분의 모서리가 점으로 투영됨";
+             if (nonZeroLengths.length === 0) return "분석 불가 (유효한 길이 없음)";
 
 
              const uniqueProjectedLengths = [...new Set(nonZeroLengths.map(l => l.toFixed(3)))].map(parseFloat); // 소수점 3자리까지 비교
@@ -290,9 +318,8 @@
              let summary = "";
              if (lengthsVary) {
                   summary += `다양하게 관찰됨 (최소: ${Math.min(...nonZeroLengths).toFixed(2)}, 최대: ${Math.max(...nonZeroLengths).toFixed(2)})`;
-                  // 원래 길이가 같았을 가능성 시사 (규칙성 가정 시)
              } else {
-                  summary += `모두 같게 관찰됨 (길이: ${nonZeroLengths.length > 0 ? uniqueProjectedLengths[0].toFixed(2) : 'N/A'})`;
+                  summary += `모두 같게 관찰됨 (길이: ${uniqueProjectedLengths.length > 0 ? uniqueProjectedLengths[0].toFixed(2) : 'N/A'})`;
              }
              return summary;
          }
@@ -318,34 +345,44 @@
             rotateYWValueSpan.textContent = `${angleYW_deg}°`;
             rotateZWValueSpan.textContent = `${angleZW_deg}°`;
 
-             // --- 4차원 회전 및 2차원 정사영 계산 ---
-             const projectedVertices = [];
+             // --- 4차원 회전 및 3차원 원근 투영 계산 ---
+             const viewerDistance = 3; // 시점 거리 (원근감 조절)
+             const projected3DVertices = [];
              let calculationError = false;
+
              vertices.forEach((v4D, index) => {
                  try {
                      const rotatedV = rotateVector4D(v4D, angleXW_rad, angleYW_rad, angleZW_rad); // 4D 회전 계산
-                     const v2D = project4Dto2D(rotatedV); // 2D 정사영 계산
+                     const projected3D = project4Dto3D_PerspectiveW(rotatedV, viewerDistance); // 4D -> 3D 원근 투영
 
                      // 계산 결과에 유효하지 않은 값이 있는지 확인
-                     if (isNaN(v2D.x) || isNaN(v2D.y) || !isFinite(v2D.x) || !isFinite(v2D.y)) {
-                         console.error(`Calculation produced invalid value for vertex ${index}:`, v2D);
-                         calculationError = true; // 오류 플래그 설정
-                         // 유효하지 않은 점은 배열에 추가하지 않거나 특별히 표시 가능
-                         // 여기서는 오류 플래그만 설정하고 계속 진행 (나중에 오류 처리)
-                          projectedVertices.push({ x: NaN, y: NaN }); // 자리만 채워둠
+                     if (isNaN(projected3D.x) || isNaN(projected3D.y) || isNaN(projected3D.z) ||
+                         !isFinite(projected3D.x) || !isFinite(projected3D.y) || !isFinite(projected3D.z)) {
+                         //console.warn(`Perspective projection produced invalid value for vertex ${index}:`, projected3D);
+                         calculationError = true; // 오류 플래그 설정 (특정 각도에서 발생 가능)
+                          projected3DVertices.push({ x: NaN, y: NaN, z: NaN }); // 유효하지 않은 점 표시
                      } else {
-                          projectedVertices.push(v2D); // 유효한 점 추가
+                          projected3DVertices.push(projected3D); // 유효한 3D 점 추가
                      }
 
                  } catch (e) {
                       console.error(`Error during projection calculation for vertex ${index}:`, e);
                       calculationError = true; // 오류 플래그 설정
-                       projectedVertices.push({ x: NaN, y: NaN }); // 오류 발생 점
+                      projected3DVertices.push({ x: NaN, y: NaN, z: NaN }); // 오류 발생 점
                  }
              });
 
+             // --- 3차원 -> 2차원 화면 좌표 변환 ---
+             // 3차원 투영 결과를 2차원 화면에 그릴 좌표로 변환한다.
+             const projected2DVertices = projected3DVertices.map(v3D => {
+                 // 3D 결과의 X, Y를 2D 화면 좌표로 사용
+                 return project3Dto2D_Draw(v3D);
+             });
+
+
              // --- 오류 발생 시 렌더링 및 분석 중단 ---
-             if (calculationError || projectedVertices.length !== vertices.length) {
+             // 투영 결과의 점 개수가 원래와 다르거나 심각한 계산 오류가 발생한 경우 중단
+             if (calculationError || projected3DVertices.length !== vertices.length || projected2DVertices.length !== vertices.length) {
                  console.error("Projection calculation failed or produced invalid results.");
                  analysisArea.textContent = "--- 오류 --- \n정사영 계산 중 문제가 발생했습니다. 콘솔을 확인하세요.";
                  conclusionArea.style.display = 'none';
@@ -356,22 +393,20 @@
 
 
              // --- 자동 스케일링 및 중앙 정렬 계산 ---
-             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+             // 유효한 2D 점들만 사용하여 경계 상자 계산
+             const validProjected2DVertices = projected2DVertices.filter(p => !isNaN(p.x) && !isNaN(p.y));
 
-             // 유효한 점들만 사용하여 경계 상자 계산
-             const validProjectedVertices = projectedVertices.filter(p => !isNaN(p.x) && !isNaN(p.y));
-
-             if (validProjectedVertices.length === 0) {
+             if (validProjected2DVertices.length === 0) {
                  // 유효한 점이 하나도 없는 경우 (모두 NaN 등)
-                 analysisArea.textContent = "--- 오류 --- \n유효한 정사영 결과가 없습니다.";
+                 analysisArea.textContent = "--- 오류 --- \n유효한 투영 결과가 없습니다.";
                  conclusionArea.style.display = 'none';
                  ctx.clearRect(0, 0, projectionCanvas.width, projectionCanvas.height);
                  requestAnimationFrame(render);
                  return;
              }
 
-             // 유효한 점들을 사용하여 경계 상자 계산
-             validProjectedVertices.forEach(p => {
+             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+             validProjected2DVertices.forEach(p => {
                   if (p.x < minX) minX = p.x;
                   if (p.x > maxX) maxX = p.x;
                   if (p.y < minY) minY = p.y;
@@ -381,7 +416,7 @@
 
              const canvasWidth = projectionCanvas.width;
              const canvasHeight = projectionCanvas.height;
-             const padding = 40;
+             const padding = 60; // 패딩을 더 늘려 그림이 캔버스 밖으로 나가는 것 방지
 
              let scale = 1;
              let offsetX = canvasWidth / 2;
@@ -392,29 +427,25 @@
 
              // 스케일 계산 (0 또는 작은 값 방지)
              if (dataWidth < 1e-6 && dataHeight < 1e-6) {
-                  // 모든 점이 거의 같은 위치에 투영된 경우
-                   scale = Math.min(canvasWidth - padding, canvasHeight - padding) / 2; // 기본 크기 설정
-                   offsetX = canvasWidth / 2 - minX * scale;
-                   offsetY = canvasHeight / 2 - minY * scale; // Canvas Y 반전 고려 안 함
+                  scale = Math.min(canvasWidth - padding, canvasHeight - padding) / 2;
+                  offsetX = canvasWidth / 2 - minX * scale;
+                  offsetY = canvasHeight / 2 - minY * scale; // Canvas Y 반전 고려 안 함
              } else if (dataWidth < 1e-6) {
-                  // 너비가 거의 0인 경우 (세로 선으로 투영)
                    scale = (canvasHeight - padding) / dataHeight;
-                   offsetX = canvasWidth / 2 - minX * scale; // X는 중앙 또는 minX 위치 고정
+                   offsetX = canvasWidth / 2 - minX * scale;
                    offsetY = canvasHeight / 2 - (minY + maxY) / 2 * scale; // Canvas Y 반전 고려
              } else if (dataHeight < 1e-6) {
-                  // 높이가 거의 0인 경우 (가로 선으로 투영)
                    scale = (canvasWidth - padding) / dataWidth;
                    offsetX = canvasWidth / 2 - (minX + maxX) / 2 * scale;
                    offsetY = canvasHeight / 2 - minY * scale; // Y는 중앙 또는 minY 위치 고정 (Canvas Y 반전 고려)
              } else {
-                 // 일반적인 경우
                   scale = Math.min((canvasWidth - padding) / dataWidth, (canvasHeight - padding) / dataHeight);
                   offsetX = canvasWidth / 2 - (minX + maxX) / 2 * scale;
                   offsetY = canvasHeight / 2 + (minY + maxY) / 2 * scale; // Canvas Y 반전 고려
              }
 
              // 최소 스케일 제한 (너무 작아지지 않도록)
-             if (scale < 1) scale = 1; // 최소 스케일 더 작게 허용 (아주 작은 그림도 일단 표시)
+             if (scale < 10) scale = 10; // 최소 스케일 제한 조정
 
 
             ctx.save(); // 현재 캔버스 상태 저장
@@ -423,12 +454,14 @@
             ctx.scale(scale, -scale); // Y축 반전 및 자동 스케일
 
 
-            // --- 2차원 정사영 결과 그리기 (와이어프레임) ---
-             ctx.lineWidth = 1.5 / scale; // 스케일 적용 후 선 굵기 조정 (조금 더 굵게)
+            // --- 2차원 화면에 결과 그리기 (와이어프레임) ---
+             ctx.lineWidth = 1.5 / scale; // 스케일 적용 후 선 굵기 조정
              ctx.strokeStyle = '#000';
              edges.forEach(edge => {
-                 const p1 = projectedVertices[edge[0]];
-                 const p2 = projectedVertices[edge[1]];
+                 const p1_idx = edge[0];
+                 const p2_idx = edge[1];
+                 const p1 = projected2DVertices[p1_idx];
+                 const p2 = projected2DVertices[p2_idx];
 
                  // 점이 유효한 경우에만 선 그리기
                  if (!isNaN(p1.x) && !isNaN(p1.y) && !isNaN(p2.x) && !isNaN(p2.y)) {
@@ -442,7 +475,7 @@
              // 점 그리기 (더 잘 보이게)
              ctx.fillStyle = 'red'; // 점 색상
              const pointRadius_screen = 3; // 화면 픽셀 기준 점 크기
-              projectedVertices.forEach(p => {
+              projected2DVertices.forEach(p => {
                  // 점이 유효한 경우에만 점 그리기
                  if (!isNaN(p.x) && !isNaN(p.y)) {
                      ctx.beginPath();
@@ -456,8 +489,8 @@
             ctx.restore(); // 캔버스 상태 복구
 
             // --- 현재 그려진 2차원 그림 분석 및 결과 표시 ---
-            // 유효한 점들만 분석에 사용
-            runAnalysis(validProjectedVertices, edges, vertices, accurate_faces4D_vertex_indices);
+            // 분석은 여전히 최종적으로 화면에 그려진 2D 점들을 기반으로 수행한다.
+            runAnalysis(validProjected2DVertices, edges, vertices, accurate_faces4D_vertex_indices);
 
             // 다음 프레임 요청
             requestAnimationFrame(render);
@@ -465,10 +498,10 @@
 
         // --- 6. 분석 실행 및 결과 표시 함수 ---
         function runAnalysis(currentProjectedVertices, edges, originalVertices, faces4D_indices) {
-             let analysisText = `--- 현재 정사영 그림 분석 결과 (추론 단서) ---\n`;
+             let analysisText = `--- 현재 투영 그림 분석 결과 (추론 단서) ---\n`;
 
              // 6-1. 총 점 및 선 개수 분석
-             // 분석 기준은 '유효하게 투영된 점'과 '원래 3D/4D 모서리'이다.
+             // 분석 기준은 '유효하게 투영되어 화면에 그려진 점'과 '원래 3D/4D 모서리'이다.
              const counts = { vertexCount: currentProjectedVertices.length, edgeCount: edges.length }; // 2D 결과 기준 유효한 개수
              analysisText += `총 점 개수 (투영 결과): ${counts.vertexCount}개\n`;
              analysisText += `총 선 개수 (원래 개수): ${counts.edgeCount}개\n`; // 선은 원래 개수 사용
@@ -480,13 +513,18 @@
              let allDegreesAre4 = false;
              if (counts.vertexCount === 16) {
                  // 투영된 점 인덱스와 원래 점 인덱스가 일치한다고 가정하고 차수 계산
-                 const degreeAnalysis = analyzeVertexDegrees(currentProjectedVertices, edges);
-                 degreeAnalysisSummary = degreeAnalysis.summary;
+                 // Note: 원근 투영에서는 점 순서가 바뀔 수 있으므로, 인덱스 기반 차수 계산은 정확하지 않을 수 있다.
+                 // 정확한 분석을 위해서는 2D 점들의 위치 관계를 보고 연결된 점을 찾아야 함 (매우 복잡).
+                 // 여기서는 단순화를 위해 원본 인덱스 기반 차수 분석 결과를 보여준다.
+                 const degreeAnalysis = analyzeVertexDegrees(originalVertices, edges); // 원본 4D 데이터로 차수 분석
+                 degreeAnalysisSummary = degreeAnalysis.summary.replace('점의 차수: 4개', '점의 차수: 4개 (4D 기준)'); // 4D 기준임을 명시
                  allDegreesAre4 = degreeAnalysis.allAre4;
+
+                 if (!allDegreesAre4) degreeAnalysisSummary = "주의: 투영으로 점이 겹쳐보여 차수 분석 어려움"; // 겹침 등 발생 시 메시지
              } else {
                   degreeAnalysisSummary += ` (점 개수 ${counts.vertexCount}개)`;
              }
-             analysisText += `모든 점 차수 (2D 연결 기준): ${degreeAnalysisSummary}\n`;
+             analysisText += `모든 점 차수: ${degreeAnalysisSummary}\n`;
 
 
              // 6-3. 면 형태 및 개수 분석 (단순화된 방식)
@@ -520,21 +558,19 @@
 
              // 테서랙트 특징 확인 (주요 단서 일치 여부)
              // 일반적인 투영에서 나타나는 특징이 모두 일치하는지 확인한다.
+             // 투영 결과 점 개수가 16개일 때만 온전한 분석이 가능하다고 본다.
              if (counts.vertexCount === 16 && counts.edgeCount === 32 && // 투영 결과 점 개수가 16이고, 원래 모서리 개수(32)가 맞고
-                 allDegreesAre4 && // 모든 점 차수 4 (2D 겹침 고려 안 함)
-                 visibleFacesAre4 && // 보이는 면이 4각형
-                 allEdgesAreIncidentTo3Faces && // 모든 모서리가 면 3개에 속함 (4D 기준)
-                 lengthsVary // 모서리 길이 다양함 (일반적인 투영)
+                 allDegreesAre4 && // 모든 점 차수 4 (4D 기준 분석 결과 사용)
+                 visibleFacesAre4 && // 보이는 면이 4각형 (4D 기준 분석 결과)
+                 allEdgesAreIncidentTo3Faces && // 모든 모서리가 면 3개에 속함 (4D 기준 분석 결과)
+                 lengthsVary // 모서리 길이 다양함 (투영 왜곡)
                  )
                  {
-                     // 모든 주요 특징이 테서랙트와 일치한다!
                      isTesseractLikely = true;
                      finalConclusion = `분석 결과 종합: 점(16), 선(32), 모든 점 차수(4), 보이는 면(4각형), 모든 모서리(면 3개에 속함), 길이 다양성. 이러한 특징들은 4차원 테서랙트의 구조와 정확히 일치한다!`;
 
              } else {
                   isTesseractLikely = false;
-                  // 불일치 또는 불충분 시 메시지
-                  // analysisArea의 요약 정보를 활용하여 메시지 구성
                   finalConclusion = `분석 결과 불충분 또는 불일치. 슬라이더를 움직여 다양한 각도에서 관찰해 보세요. (현재 분석 단서: 점${counts.vertexCount}, 선${counts.edgeCount}, 차수:${degreeAnalysisSummary}, 면:${faceAnalysis.summary}, 모서리-면:${edgeFaceAnalysis.summary}, 길이:${distortionAnalysis})`;
              }
 
@@ -543,8 +579,7 @@
                   conclusionArea.style.display = 'block';
                   conclusionArea.textContent = finalConclusion;
              } else {
-                  conclusionArea.style.display = 'none'; // 일치하지 않으면 숨김
-                  // 불일치 시 메시지를 analysisArea에 추가 표시할 수도 있다.
+                  conclusionArea.style.display = 'none';
              }
         }
 
